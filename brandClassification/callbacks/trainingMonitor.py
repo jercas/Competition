@@ -17,7 +17,7 @@ class TrainingMonitor(BaseLogger):
 			Constructor function.
 
 			Parameters:
-				figurePath: The path to the output plot that use to visualize loss and acc over time.
+				figurePath: The path to the outputPlot plot that use to visualize loss and acc over time.
 				jsonPath:  Optional. The path used to serialize the loss and acc values as a JSON file and then can be
 									 used to plot the training history.
 				startAt: Optional. The starting epoch that training is 'resumed' at when using ctrl+C training.

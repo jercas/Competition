@@ -38,7 +38,7 @@ class SimpleDatasetLoader:
 					image = preprocessor.preprocess(image)
 
 			# Treat processed image as a "feature vector" by updating the data list followed by the labels.
-			# image size: 32*32 pixels
+			# image size: 224*224 pixels or 299*299 pixels.
 			data.append(image)
 			labels.append(label)
 

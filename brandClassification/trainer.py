@@ -8,6 +8,7 @@ from sklearn.metrics import classification_report
 
 from keras.layers import GlobalAvgPool2D, Flatten, Dense, Activation, BatchNormalization, Dropout
 from keras.optimizers import SGD
+from keras.models import Model
 from keras.datasets import cifar10
 from keras.callbacks import LearningRateScheduler, ModelCheckpoint
 
@@ -33,13 +34,16 @@ from preprocessing.ImageToArrayPreprocessor import ImageToArrayPreprocessor
 from preprocessing.SimpleDatasetLoader import SimpleDatasetLoader
 from callbacks.trainingMonitor import TrainingMonitor
 from stepBased_lr_decay import stepBased_decay
+import predictor
+from counter import counter
 import matplotlib.pyplot as plt
 from imutils import paths
 import numpy as np
 import argparse
+import glob
 import os
 
-# Define a dictionary that maps model names to its classes inside keras individual.
+# Define a dictionary that maps modelAndWeights names to its classes inside keras individual.
 MODELS = {
 	"vgg16": VGG16,
 	"vgg19": VGG19,
@@ -47,28 +51,39 @@ MODELS = {
 	"xception": Xception,
 	"resnet": ResNet50
 }
-CLASSES = 100
+
+TRAIN_DIR = "./dataset/train"
+VAL_DIR = "./dataset/val"
+TEST_DIR = "./dataset/test"
+MODEL_WEIGHTS_DIR = "./modelAndWeights"
+OUTPUT_PLOT_DIR = "./outputPlot"
+
+MONITOR = True
+CHECKPOINT = True
+
+TRAIN_EXAMPLES = counter(TRAIN_DIR)
+VAL_EXAMPLES = counter(VAL_DIR)
+TEST_EXAMPLES = counter(TEST_DIR)
+
+CLASSES = len(glob.glob("{}/*".format(TRAIN_DIR)))
 BATCH_SIZE = 64
 EPOCHS = 50
-
 # Construct the argument parse and parse the arguments.
 ap = argparse.ArgumentParser()
-ap.add_argument("-d", "--dataset", required=True, help="path to input dataset")
-ap.add_argument("-m", "--monitor", required=False,
-                help="decide whether to use training monitor which can plot loss curve at the end of every epoch.")
-ap.add_argument("-o", "--model", type=str, default="vgg16", help="name of pre-trained network to use")
-ap.add_argument("-c", "--checkpoint", required=False,
-                help="decide whether to store checkpoint which can serialized models during the training process on each improvement epoch.")
+ap.add_argument("-m", "--model", type=str, default="vgg16", help="name of pre-trained network to use")
 args = vars(ap.parse_args())
 
 # Show information on the process ID.
-print("[INFO] process ID: {}".format(os.getpid()))
+PID = os.getpid()
+print("[INFO] process ID: {}".format(PID))
 
 # Ensure a valid model name was supplied via command line argument.
 if args["model"] not in MODELS.keys():
-	raise AssertionError("The --model command line argument should be a key in the 'MODELS' dictionary which include VGG16, VGG19, 1ncepthonV3, Xception, Resnet50")
+	raise AssertionError("The --modelAndWeights command line argument should be a key in the 'MODELS' dictionary which include VGG16, VGG19, 1ncepthonV3, Xception, Resnet50")
 
-imagePaths = list(paths.list_images(args["dataset"]))
+trainPaths = list(paths.list_images(TRAIN_DIR))
+valPaths = list(paths.list_images(VAL_DIR))
+testPaths = list(paths.list_images(TEST_DIR))
 inputShape = (224, 224)
 preprocess = imagenet_utils.preprocess_input
 
@@ -87,21 +102,21 @@ sp = SimplePreprocessor(inputShape[0], inputShape[1])
 iap = ImageToArrayPreprocessor()
 # Load the dataset from disk then scale the raw pixel RGBs to the range [0, 1].
 sdl = SimpleDatasetLoader(preprocessors=[sp, iap])
-(trainX, trainY) = sdl.load("{}/train".format(imagePaths), verbose=500)
+(trainX, trainY) = sdl.load(trainPaths, verbose=TRAIN_EXAMPLES)
 trainX = trainX.astype("float") / 255.0
-(valX, valY) = sdl.load("{}/val".format(imagePaths), verbose=500)
+(valX, valY) = sdl.load(valPaths, verbose=VAL_EXAMPLES)
 valX = valX.astype("float") / 255.0
-(testX, testY) = sdl.load("{}/test".format(imagePaths), verbose=1000)
+
+(testX, testY) = sdl.load(testPaths, verbose=TEST_EXAMPLES)
 testX = testX.astype("float") / 255.0
 
 # One-hot encoding: convert the labels from integers to vectors.
 lb = LabelBinarizer()
 trainY = lb.fit_transform(trainY)
 valY = lb.fit_transform(valY)
-testY = lb.fit_transform(testY)
 
 # Initialize the optimizer and model.
-print("[INFO] compiling model...")
+print("[INFO] compiling modelAndWeights...")
 """
 # Time-based decay: slowly reduce the learning rate over time, common setting for decay is to divide the initial lr
 #by total number of epochs.(here 0.01/40)
@@ -122,52 +137,48 @@ callbacks = [LearningRateScheduler(stepBased_decay)]
 print("[INFO] loading {}...".format(args["model"]))
 Network = MODELS[args["model"]]
 # Adaptive function call.
-model = Network(weights="imagenet", include_top=False, classes=100)
+notop_model = Network(weights="imagenet", include_top=False, classes=CLASSES, pooling='avg')
 # Freeze original layer weights.
-for layer in model.layers:
+for layer in notop_model.layers:
 	layer.trainable = False
 
-model.add(GlobalAvgPool2D(name="classify_avgPooling"))
-model.add(Flatten(input_shape=model.output_shape[1:]))
-model.add(Dense(256, activation='relu'), name="fc1")
-model.add(Activation("relu"))
-model.add(BatchNormalization(name="classify_bn1"))
-model.add(Dropout(0.5))
-model.add(Dense(CLASSES), name="fc2")
-model.add(Activation("softmax", name="predictions"))
+x = notop_model.output
+x = Dense(256, name="fc1")(x)
+x = Activation("relu")(x)
+x = BatchNormalization(name="classify_bn1")(x)
+x = Dropout(0.5)(x)
+x = Dense(CLASSES, name='fc2')(x)
+predictions = Activation("softmax", name="prediction")(x)
 
+model = Model(input=notop_model.input, output=predictions, name=args["model"])
 model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
 model.summary()
 
-if args["monitor"]:
-	if not os.path.exists("{}".format(args["monitor"])):
-		os.mkdir("{}".format(args["monitor"]))
-	if not os.path.exists("{}/{}".format(args["monitor"], os.getpid())):
-		os.mkdir("{}/{}".format(args["monitor"], os.getpid()))
+if MONITOR:
+	if not os.path.exists("{}/{}".format(OUTPUT_PLOT_DIR, PID)):
+		os.mkdir("{}/{}".format(OUTPUT_PLOT_DIR, PID))
 
 	print("\n[INFO] monitor module establish!")
-	figurePath = "{}/{}".format(args["monitor"], os.getpid())
-	jsonPath   = "{}/{}/{}.json".format(args["monitor"], os.getpid(), os.getpid())
+	figurePath = "{}/{}".format(OUTPUT_PLOT_DIR, PID)
+	jsonPath   = "{}/{}/{}.json".format(OUTPUT_PLOT_DIR, PID, 'weightsByEpochs')
 	# Construct the set of callbacks.
 	callbacks.append(TrainingMonitor(figurePath=figurePath, jsonPath=jsonPath))
 
-if args["checkpoint"]:
-	if not os.path.exists("{}".format(args["checkpoint"])):
-		os.mkdir("{}".format(args["checkpoint"]))
-	if not os.path.exists("{}/{}".format(args["checkpoint"], os.getpid())):
-		os.mkdir("{}/{}".format(args["checkpoint"], os.getpid()))
+if CHECKPOINT:
+	if not os.path.exists("{}/{}".format(MODEL_WEIGHTS_DIR, PID)):
+		os.mkdir("{}/{}".format(MODEL_WEIGHTS_DIR, PID))
 
 	print("\n[INFO] checkpoint module establish!\n")
 	# A template string value that keras uses when writing checkpoing-models to disk based on its epoch and the validation
 	#value on the current epoch.
-	fname = os.path.join("{}/{}/".format(args["checkpoint"], os.getpid()), "checkpoint-{epoch:03d}-{val_loss:.4f}.hd5f")
+	h5Path = os.path.join("{}/{}/".format(MODEL_WEIGHTS_DIR, PID), "checkpoint-{epoch:03d}-{val_loss:.4f}.hd5f")
 	# monitor -- what metric would like to monitor;
 	# mode -- controls whether the ModelCheckpoint be looking for values that minimize metric or maximize it in the contrary.
 	#         such as, if you monitor val_loss, you would like to minimize it and if monitor equals to val_acc then you should maximize it.
 	# save_best_only -- ensures the latest best model (according to the metric monitored) will not be overwritten.
 	# verbose=1 -- simply logs a notification to terminal when a model is being serialized to disk during training.
 	# period -- the interval epochs between two saved checkpoints.
-	checkpoint = ModelCheckpoint(filepath=fname, monitor="val_loss", mode="min", save_best_only=True, verbose=1)
+	checkpoint = ModelCheckpoint(filepath=h5Path, monitor="val_loss", mode="min", save_best_only=True, verbose=1)
 	# Construct the set of callbacks.
 	callbacks.append(checkpoint)
 
@@ -178,7 +189,7 @@ Hypo = model.fit(trainX, trainY, validation_data=(valX, valY), batch_size=BATCH_
 # Evaluate.
 print("[INFO] evaluating network...")
 predictions = model.predict(testX, batch_size=BATCH_SIZE)
-print(classification_report(testY.argmax(axis=1), predictions.argmax(axis=1)))
+predictor.predict(testPaths, predictions)
 
 # Plot the training loss, training accuracy, validation loss, validation accuracy over time.
 plt.style.use("ggplot")
@@ -191,5 +202,5 @@ plt.title("Training Loss and Accuracy")
 plt.xlabel("Epoch #")
 plt.ylabel("Loss/Accuracy")
 plt.legend()
-plt.savefig("{}.png".format(args["output"]))
+plt.savefig("{}.png".format(args["outputPlot"]))
 plt.show()

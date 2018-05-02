@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebResourcesPaths">
+    <contentEntries>
+      <entry url="file://$PROJECT_DIR$">
+        <entryData>
+          <resourceRoots>
+            <path value="file://$PROJECT_DIR$/brandClassification/output" />
+            <path value="file://$PROJECT_DIR$/brandClassification/model" />
+            <path value="file://$PROJECT_DIR$/brandClassification/dataset" />
+            <path value="file://$PROJECT_DIR$/brandClassification/dataset/test" />
+            <path value="file://$PROJECT_DIR$/brandClassification/dataset/train" />
+            <path value="file://$PROJECT_DIR$/brandClassification/dataset/val" />
+          </resourceRoots>
+        </entryData>
+      </entry>
+    </contentEntries>
+  </component>
+</project>

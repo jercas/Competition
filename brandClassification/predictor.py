@@ -22,6 +22,6 @@ def predict(testPaths, predictions):
 				output.loc[j, 'label'] = predictions[i]
 
 	print(output)
-	output.to_csv('labeledTest.csv')
+	output.to_csv('labeledTest.csv', header=0)
 
 

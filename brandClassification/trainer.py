@@ -4,6 +4,7 @@ Created on Wed Mar 2 10:00:00 2018
 @author: jercas
 """
 from sklearn.preprocessing import LabelBinarizer
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 
 from keras.layers import GlobalAvgPool2D, Flatten, Dense, Activation, BatchNormalization, Dropout
@@ -29,6 +30,7 @@ import matplotlib
 # Depending on what your default matplotlib backend is and whether you are accessing your deep learning machine remotely
 #(via SSH, for instance), X11 session may timeout. If that happens, matplotlib will error out when it tries to display figure.
 matplotlib.use("Agg")
+from keras import backend as K
 from preprocessing.SimplePreprocessor import SimplePreprocessor
 from preprocessing.ImageToArrayPreprocessor import ImageToArrayPreprocessor
 from preprocessing.SimpleDatasetLoader import SimpleDatasetLoader
@@ -39,6 +41,7 @@ from counter import counter
 import matplotlib.pyplot as plt
 from imutils import paths
 import numpy as np
+import win_unicode_console
 import argparse
 import glob
 import os
@@ -66,8 +69,12 @@ VAL_EXAMPLES = counter(VAL_DIR)
 TEST_EXAMPLES = counter(TEST_DIR)
 
 CLASSES = len(glob.glob("{}/*".format(TRAIN_DIR)))
+print(CLASSES)
 BATCH_SIZE = 64
-EPOCHS = 50
+EPOCHS = 2
+
+win_unicode_console.enable()
+
 # Construct the argument parse and parse the arguments.
 ap = argparse.ArgumentParser()
 ap.add_argument("-m", "--model", type=str, default="vgg16", help="name of pre-trained network to use")
@@ -85,14 +92,14 @@ trainPaths = list(paths.list_images(TRAIN_DIR))
 valPaths = list(paths.list_images(VAL_DIR))
 testPaths = list(paths.list_images(TEST_DIR))
 inputShape = (224, 224)
-preprocess = imagenet_utils.preprocess_input
+#preprocess = imagenet_utils.preprocess_input
 
 if args["model"] in ("inception", "xception"):
 	inputShape = (299, 299)
 	# Updating preprocess to use a separate pre-processing function that performs a different type of scaling since the
 	#Inception and its extension Xception is act as "multi-level feature extractor" by computing different size convolution
 	#filters within the same module of the network.
-	preprocess = preprocess_input
+	#preprocess = preprocess_input
 
 # Load the input image using the keras helper utility while ensuring the image is resized to 'inputShape', the required
 #input dimensions for ImageNet pre-trained network.
@@ -102,18 +109,21 @@ sp = SimplePreprocessor(inputShape[0], inputShape[1])
 iap = ImageToArrayPreprocessor()
 # Load the dataset from disk then scale the raw pixel RGBs to the range [0, 1].
 sdl = SimpleDatasetLoader(preprocessors=[sp, iap])
-(trainX, trainY) = sdl.load(trainPaths, verbose=TRAIN_EXAMPLES)
-trainX = trainX.astype("float") / 255.0
-(valX, valY) = sdl.load(valPaths, verbose=VAL_EXAMPLES)
-valX = valX.astype("float") / 255.0
 
+(trainX, trainY) = sdl.load(trainPaths, verbose=TRAIN_EXAMPLES)
+print(trainY)
+trainX = trainX.astype("float") / 255.0
+#(valX, valY) = sdl.load(valPaths, verbose=VAL_EXAMPLES)
+#valX = valX.astype("float") / 255.0
 (testX, testY) = sdl.load(testPaths, verbose=TEST_EXAMPLES)
 testX = testX.astype("float") / 255.0
 
 # One-hot encoding: convert the labels from integers to vectors.
 lb = LabelBinarizer()
 trainY = lb.fit_transform(trainY)
-valY = lb.fit_transform(valY)
+print(trainY[0])
+
+(trainX, valX, trainY, valY) = train_test_split(trainX, trainY, test_size=0.2, stratify=trainY, random_state=42)
 
 # Initialize the optimizer and model.
 print("[INFO] compiling modelAndWeights...")
@@ -152,7 +162,7 @@ predictions = Activation("softmax", name="prediction")(x)
 
 model = Model(input=notop_model.input, output=predictions, name=args["model"])
 model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
-model.summary()
+#model.summary()
 
 if MONITOR:
 	if not os.path.exists("{}/{}".format(OUTPUT_PLOT_DIR, PID)):
@@ -190,6 +200,7 @@ Hypo = model.fit(trainX, trainY, validation_data=(valX, valY), batch_size=BATCH_
 print("[INFO] evaluating network...")
 predictions = model.predict(testX, batch_size=BATCH_SIZE)
 predictor.predict(testPaths, predictions)
+K.clear_session()
 
 # Plot the training loss, training accuracy, validation loss, validation accuracy over time.
 plt.style.use("ggplot")
@@ -202,5 +213,5 @@ plt.title("Training Loss and Accuracy")
 plt.xlabel("Epoch #")
 plt.ylabel("Loss/Accuracy")
 plt.legend()
-plt.savefig("{}.png".format(args["outputPlot"]))
+plt.savefig("{}/{}.png".format(OUTPUT_PLOT_DIR, args["model"]))
 plt.show()

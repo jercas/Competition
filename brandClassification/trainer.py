@@ -3,14 +3,13 @@ Created on Wed Mar 2 10:00:00 2018
 
 @author: jercas
 """
-from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 
+from keras import backend as K
 from keras.layers import GlobalAvgPool2D, Flatten, Dense, Activation, BatchNormalization, Dropout
 from keras.optimizers import SGD
 from keras.models import Model
-from keras.datasets import cifar10
 from keras.callbacks import LearningRateScheduler, ModelCheckpoint
 
 from keras.applications import ResNet50
@@ -23,6 +22,7 @@ from keras.applications import imagenet_utils
 from keras.applications.inception_v3 import preprocess_input
 from keras.preprocessing.image import img_to_array
 from keras.preprocessing.image import load_img
+from keras.utils import to_categorical
 
 import matplotlib
 # Set matplotlib backend to Agg to indicate to create a non-interactive figure that will simply be saved to disk.
@@ -30,7 +30,6 @@ import matplotlib
 # Depending on what your default matplotlib backend is and whether you are accessing your deep learning machine remotely
 #(via SSH, for instance), X11 session may timeout. If that happens, matplotlib will error out when it tries to display figure.
 matplotlib.use("Agg")
-from keras import backend as K
 from preprocessing.SimplePreprocessor import SimplePreprocessor
 from preprocessing.ImageToArrayPreprocessor import ImageToArrayPreprocessor
 from preprocessing.SimpleDatasetLoader import SimpleDatasetLoader
@@ -38,6 +37,7 @@ from callbacks.trainingMonitor import TrainingMonitor
 from stepBased_lr_decay import stepBased_decay
 import predictor
 from counter import counter
+
 import matplotlib.pyplot as plt
 from imutils import paths
 import numpy as np
@@ -55,9 +55,9 @@ MODELS = {
 	"resnet": ResNet50
 }
 
-TRAIN_DIR = "./dataset/train"
+TRAIN_DIR = "./dataset/train_spilt"
 VAL_DIR = "./dataset/val"
-TEST_DIR = "./dataset/test"
+TEST_DIR = "./dataset/test_origin"
 MODEL_WEIGHTS_DIR = "./modelAndWeights"
 OUTPUT_PLOT_DIR = "./outputPlot"
 
@@ -119,11 +119,11 @@ trainX = trainX.astype("float") / 255.0
 testX = testX.astype("float") / 255.0
 
 # One-hot encoding: convert the labels from integers to vectors.
-lb = LabelBinarizer()
-trainY = lb.fit_transform(trainY)
-print(trainY[0])
+trainY = to_categorical(trainY, num_classes=CLASSES)
+print(trainY[0],trainY[50], trainY[99])
 
-(trainX, valX, trainY, valY) = train_test_split(trainX, trainY, test_size=0.2, stratify=trainY, random_state=42)
+# Random split the validation set from train set as ratio 9:1.
+(trainX, valX, trainY, valY) = train_test_split(trainX, trainY, test_size=0.1, stratify=trainY, random_state=42)
 
 # Initialize the optimizer and model.
 print("[INFO] compiling modelAndWeights...")
@@ -194,11 +194,12 @@ if CHECKPOINT:
 
 # Train.
 print("[INFO] training network...")
-Hypo = model.fit(trainX, trainY, validation_data=(valX, valY), batch_size=BATCH_SIZE, epochs=EPOCHS, verbose=1, callbacks=callbacks)
+Hypo = model.fit(trainX, trainY, validation_data=(valX, valY), batch_size=BATCH_SIZE, epochs=EPOCHS, verbose=1, callbacks=callbacks, shuffle=1)
 
 # Evaluate.
 print("[INFO] evaluating network...")
 predictions = model.predict(testX, batch_size=BATCH_SIZE)
+#print(classification_report(testY.argmax(axis=1), predictions.argmax(axis=1), target_names=lb.classes_))
 predictor.predict(testPaths, predictions)
 K.clear_session()
 

@@ -27,6 +27,9 @@ wheels/
 train/
 val/
 test/
+train_origin/
+test_origin/
+train_split/
 .idea/
 
 # PyInstaller
